@@ -8,13 +8,13 @@ import { motion, AnimatePresence } from 'framer-motion'
 interface ChatBoxProps {
   agentId: string
   agentName: string
+  onClose: () => void
 }
 
-export default function ChatBox({ agentId, agentName }: ChatBoxProps) {
+export default function ChatBox({ agentId, agentName, onClose }: ChatBoxProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [isOpen, setIsOpen] = useState(false)
   const [isMinimized, setIsMinimized] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -28,12 +28,12 @@ export default function ChatBox({ agentId, agentName }: ChatBoxProps) {
     scrollToBottom()
   }, [messages])
 
-  // Focus input when chat opens
+  // Focus input when not minimized
   useEffect(() => {
-    if (isOpen && !isMinimized) {
+    if (!isMinimized) {
       inputRef.current?.focus()
     }
-  }, [isOpen, isMinimized])
+  }, [isMinimized])
 
   const handleSendMessage = async () => {
     if (!input.trim() || isLoading) return
@@ -115,22 +115,6 @@ export default function ChatBox({ agentId, agentName }: ChatBoxProps) {
     })
   }
 
-  if (!isOpen) {
-    return (
-      <motion.button
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 bg-emerald-500 hover:bg-emerald-600 text-slate-900 p-4 rounded-full shadow-lg shadow-emerald-500/50 z-50 flex items-center gap-2 font-bold"
-      >
-        <MessageSquare className="w-6 h-6" />
-        <span className="pr-1">Chat with {agentName}</span>
-      </motion.button>
-    )
-  }
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 20, scale: 0.95 }}
@@ -162,7 +146,7 @@ export default function ChatBox({ agentId, agentName }: ChatBoxProps) {
             <Minimize2 className="w-4 h-4 text-gray-400" />
           </button>
           <button
-            onClick={() => setIsOpen(false)}
+            onClick={onClose}
             className="p-1 hover:bg-slate-700 rounded transition-colors"
           >
             <X className="w-4 h-4 text-gray-400" />

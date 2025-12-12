@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createPrimeChain, invokePrimeSimple } from '@/lib/langchain/agent'
+import { createPrimeChain, invokePrimeSimple, createCTOChain, invokeCTOSimple } from '@/lib/langchain/agent'
 import { convertToLangChainMessages, formatConversationContext } from '@/lib/langchain/memory'
 
 export async function POST(request: NextRequest) {
@@ -14,10 +14,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // For now, only Prime agent uses AI chat
-    if (agentId !== 'prime') {
+    // Validate agentId
+    if (agentId !== 'prime' && agentId !== 'cto') {
       return NextResponse.json(
-        { error: 'Only Prime agent is available for chat' },
+        { error: 'Invalid agent ID. Only Prime and CTO agents are available for chat' },
         { status: 400 }
       )
     }
@@ -25,7 +25,9 @@ export async function POST(request: NextRequest) {
     // Check if API key is available
     if (!process.env.HUGGINGFACE_API_KEY) {
       // Fallback to mock response if no API key
-      const mockResponse = generateMockPrimeResponse(message)
+      const mockResponse = agentId === 'cto'
+        ? generateMockCTOResponse(message)
+        : generateMockPrimeResponse(message)
       return NextResponse.json({ response: mockResponse })
     }
 
@@ -37,55 +39,106 @@ export async function POST(request: NextRequest) {
 
     if (isSimpleGreeting) {
       // Skip AI for simple greetings to provide instant response
-      fullResponse = generateMockPrimeResponse(message)
+      fullResponse = agentId === 'cto'
+        ? generateMockCTOResponse(message)
+        : generateMockPrimeResponse(message)
       return NextResponse.json({ response: fullResponse })
     }
 
     try {
       // Convert conversation history to LangChain messages
-      const recentHistory = (conversationHistory || []).slice(-8)
+      const recentHistory = (conversationHistory || []).slice(-4)
       const langchainMessages = convertToLangChainMessages(recentHistory)
+      
+      
+      // After line 48
+      if (message.toLowerCase().includes('analyze eth')) {
+        const { marketAnalysisTool } = await import('@/lib/langchain/tools')
+        const result = await marketAnalysisTool.invoke({ ticker: 'ETH' })
+        const parsed = JSON.parse(result)
+        return NextResponse.json({ 
+          response: `ETH Analysis:\n- Sentiment: ${parsed.sentiment}\n- Trend: ${parsed.trend}\n- Confidence: ${parsed.confidence}%\n- Recommendation: ${parsed.recommendation}` 
+        })
+      }
 
       // Wrap the entire LangChain execution with a timeout
-      // Use 15 second timeout - fail fast and use mock response
+      // Use 45 second timeout - fail fast and use mock response
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Request timeout after 15 seconds')), 15000)
+        setTimeout(() => reject(new Error('Request timeout after 45 seconds')), 45000)
       })
 
       // Try to use LangChain with full conversation context
       try {
-        const chain = await createPrimeChain(
-          process.env.HUGGINGFACE_API_KEY,
-          langchainMessages
-        )
+        const chain = agentId === 'cto'
+          ? await createCTOChain(
+              process.env.HUGGINGFACE_API_KEY,
+              langchainMessages
+            )
+          : await createPrimeChain(
+              process.env.HUGGINGFACE_API_KEY,
+              langchainMessages
+            )
 
         fullResponse = await Promise.race([
           chain.invoke({ input: message }),
           timeoutPromise
         ])
       } catch (chainError) {
-        console.warn('Chain execution failed, using simple invoke:', chainError)
+        console.warn('Chain execution failed, trying simple invoke:', {
+          error: chainError instanceof Error ? chainError.message : String(chainError),
+          messageLength: message.length,
+          historyLength: recentHistory.length
+        })
 
         // Fallback to simple invoke with formatted context
-        const context = formatConversationContext(recentHistory, 6)
-        fullResponse = await Promise.race([
-          invokePrimeSimple(
-            process.env.HUGGINGFACE_API_KEY,
-            message,
-            context
-          ),
-          timeoutPromise
-        ])
+        const context = formatConversationContext(recentHistory, 4)
+        const simpleInvokeTimeout = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Simple invoke timeout after 25 seconds')), 25000)
+        })
+
+        try {
+          fullResponse = await Promise.race([
+            agentId === 'cto'
+              ? invokeCTOSimple(
+                  process.env.HUGGINGFACE_API_KEY,
+                  message,
+                  context
+                )
+              : invokePrimeSimple(
+                  process.env.HUGGINGFACE_API_KEY,
+                  message,
+                  context
+                ),
+            simpleInvokeTimeout
+          ])
+        } catch (simpleError) {
+          console.error('Simple invoke failed, using mock response:', {
+            error: simpleError instanceof Error ? simpleError.message : String(simpleError),
+            messageLength: message.length
+          })
+          // Final fallback to mock response
+          fullResponse = agentId === 'cto'
+            ? generateMockCTOResponse(message)
+            : generateMockPrimeResponse(message)
+        }
       }
 
       // Ensure we have a valid response
       if (!fullResponse || fullResponse.trim().length === 0) {
-        throw new Error('Empty response from LangChain')
+        console.warn('Empty response received, using mock response')
+        fullResponse = agentId === 'cto'
+          ? generateMockCTOResponse(message)
+          : generateMockPrimeResponse(message)
       }
     } catch (langchainError) {
-      console.error('LangChain error, using mock response:', langchainError)
+      console.error('Unexpected error in LangChain execution:', {
+        error: langchainError instanceof Error ? langchainError.message : String(langchainError),
+        stack: langchainError instanceof Error ? langchainError.stack : undefined
+      })
       // Final fallback to mock response
-      fullResponse = generateMockPrimeResponse(message)
+      fullResponse = agentId === 'cto'
+        ? generateMockCTOResponse(message)
+        : generateMockPrimeResponse(message)
     }
 
     return NextResponse.json({ response: fullResponse })
@@ -145,6 +198,61 @@ function generateMockPrimeResponse(message: string): string {
     'Risk-adjusted returns prioritized. No forced trades. Current market regime: mean-reverting. Adapt strategy accordingly.',
     'Data synthesis complete. Cross-referencing on-chain metrics with price action. Will alert when probability threshold exceeded.',
     'Market microstructure analysis ongoing. Bid-ask spread tightening. Liquidity improving. Monitoring for optimal entry conditions.',
+  ]
+
+  return responses[Math.floor(Math.random() * responses.length)]
+}
+
+// Mock response generator for CTO agent
+function generateMockCTOResponse(message: string): string {
+  const lowerMessage = message.toLowerCase().trim()
+
+  // Handle greetings
+  if (lowerMessage === 'hey' || lowerMessage === 'hi' || lowerMessage === 'hello' ||
+      lowerMessage === 'yo' || lowerMessage === 'sup') {
+    return 'Hey. CTO here. System architecture running smoothly. Need help with technical strategy, infrastructure, or codebase optimization?'
+  }
+
+  // Pattern matching for common queries
+  if (lowerMessage.includes('status') || lowerMessage.includes('how are you')) {
+    return 'All systems operational. Backend services: 99.97% uptime. Database latency: 12ms avg. CI/CD pipeline: green. Monitoring 23 microservices.'
+  }
+
+  if (lowerMessage.includes('architecture') || lowerMessage.includes('system')) {
+    return 'Current architecture: Event-driven microservices on K8s. Using CQRS pattern for trading logic. Real-time data via WebSockets. Considering migration to service mesh for better observability.'
+  }
+
+  if (lowerMessage.includes('performance') || lowerMessage.includes('optimization')) {
+    return 'Performance metrics looking solid. API response time: p95 < 150ms. Database queries optimized with proper indexing. Caching layer reducing load by 67%. Identified opportunity to improve WebSocket throughput.'
+  }
+
+  if (lowerMessage.includes('security') || lowerMessage.includes('vulnerability')) {
+    return 'Security posture: Strong. All dependencies scanned (0 critical CVEs). API rate limiting active. Secrets in vault. Regular penetration testing scheduled. Implementing zero-trust architecture.'
+  }
+
+  if (lowerMessage.includes('scale') || lowerMessage.includes('scaling')) {
+    return 'Horizontal scaling configured via HPA. Current capacity: 10K concurrent users. Auto-scaling triggers at 70% CPU. Database read replicas ready. CDN caching static assets globally.'
+  }
+
+  if (lowerMessage.includes('deployment') || lowerMessage.includes('deploy')) {
+    return 'Deployment pipeline: GitOps with ArgoCD. Blue-green deployments minimize downtime. Automated rollbacks on health check failures. Average deployment time: 4.2 minutes. 15 deploys this week.'
+  }
+
+  if (lowerMessage.includes('database') || lowerMessage.includes('data')) {
+    return 'Database strategy: PostgreSQL for transactional data, TimescaleDB for time-series, Redis for caching. Automated backups every 6h. Query performance monitored via slow query log.'
+  }
+
+  if (lowerMessage.includes('bug') || lowerMessage.includes('error') || lowerMessage.includes('issue')) {
+    return 'Error tracking active via Sentry. 3 new issues this week (all P3). Resolution time: avg 2.1 days. Memory leak in WebSocket handler identified and patched. Implementing better error boundaries.'
+  }
+
+  // Default technical response
+  const responses = [
+    'Reviewing system metrics. CPU utilization stable at 45%. Memory headroom sufficient. No bottlenecks detected. Ready to scale on demand.',
+    'Code quality gates passing. Test coverage: 87%. Static analysis clean. Dependency vulnerabilities: 0 critical. Technical debt under control.',
+    'Infrastructure costs optimized this quarter. Reduced cloud spend by 18% via reserved instances. Monitoring for further optimization opportunities.',
+    'API versioning strategy working well. v2 adoption at 76%. Deprecated endpoints scheduled for sunset Q2. Backward compatibility maintained.',
+    'Observability stack upgraded. Distributed tracing via OpenTelemetry. Log aggregation performant. Dashboards providing actionable insights.',
   ]
 
   return responses[Math.floor(Math.random() * responses.length)]

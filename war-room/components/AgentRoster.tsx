@@ -1,11 +1,13 @@
 'use client'
 
 import { Agent } from '@/types'
-import { Brain, Eye, Zap, Shield } from 'lucide-react'
+import { Brain, Eye, Zap, Shield, Code } from 'lucide-react'
 import { motion } from 'framer-motion'
 
 interface AgentRosterProps {
   agents: Agent[]
+  selectedAgent: Agent | null
+  onSelectAgent: (agent: Agent) => void
 }
 
 const iconMap: Record<string, React.ComponentType<any>> = {
@@ -13,9 +15,10 @@ const iconMap: Record<string, React.ComponentType<any>> = {
   Eye,
   Zap,
   Shield,
+  Code,
 }
 
-export default function AgentRoster({ agents }: AgentRosterProps) {
+export default function AgentRoster({ agents, selectedAgent, onSelectAgent }: AgentRosterProps) {
   return (
     <div className="h-full bg-slate-900 border-r border-emerald-500/20 p-4">
       <h2 className="text-emerald-500 text-sm font-bold tracking-wider mb-6 cyber-glow-green">
@@ -25,6 +28,8 @@ export default function AgentRoster({ agents }: AgentRosterProps) {
       <div className="space-y-4">
         {agents.map((agent, index) => {
           const IconComponent = iconMap[agent.icon]
+          const isSelected = selectedAgent?.id === agent.id
+          const isOnline = agent.status === 'online'
 
           return (
             <motion.div
@@ -32,7 +37,16 @@ export default function AgentRoster({ agents }: AgentRosterProps) {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: index * 0.1 }}
-              className="bg-slate-800/50 border border-slate-700 rounded p-3 hover:border-emerald-500/30 transition-colors"
+              onClick={() => isOnline && onSelectAgent(agent)}
+              className={`bg-slate-800/50 border rounded p-3 transition-all ${
+                isOnline
+                  ? 'cursor-pointer hover:border-emerald-500/50 hover:bg-slate-800/70'
+                  : 'cursor-not-allowed opacity-50'
+              } ${
+                isSelected
+                  ? 'border-emerald-500 bg-slate-800/70 shadow-lg shadow-emerald-500/20'
+                  : 'border-slate-700'
+              }`}
             >
               <div className="flex items-start gap-3">
                 {/* Icon/Avatar */}

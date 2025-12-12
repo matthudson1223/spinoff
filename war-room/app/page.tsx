@@ -8,7 +8,7 @@ import ExecutionPanel from '@/components/ExecutionPanel'
 import ConstitutionModal from '@/components/ConstitutionModal'
 import ChatBox from '@/components/ChatBox'
 import { mockAgents, mockTradeProposals, mockExecutedTrades, constitution } from '@/data/mockData'
-import { TradeProposal, ExecutedTrade } from '@/types'
+import { TradeProposal, ExecutedTrade, Agent } from '@/types'
 
 export default function Home() {
   const [proposals, setProposals] = useState<TradeProposal[]>(mockTradeProposals)
@@ -17,6 +17,7 @@ export default function Home() {
   const [portfolioValue] = useState(1000.00)
   const [dailyChange] = useState(12.40)
   const [dailyChangePercent] = useState(1.2)
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
 
   const handleApprove = (id: string) => {
     const proposal = proposals.find(p => p.id === id)
@@ -79,7 +80,11 @@ export default function Home() {
       <main className="flex-1 grid grid-cols-12 gap-0 overflow-hidden">
         {/* Left Sidebar: Agent Roster */}
         <div className="col-span-3 overflow-hidden">
-          <AgentRoster agents={mockAgents} />
+          <AgentRoster
+            agents={mockAgents}
+            selectedAgent={selectedAgent}
+            onSelectAgent={setSelectedAgent}
+          />
         </div>
 
         {/* Center Panel: Opportunity Feed */}
@@ -110,8 +115,14 @@ export default function Home() {
         constitution={constitution}
       />
 
-      {/* Chat Box - Fixed to bottom right */}
-      <ChatBox agentId="prime" agentName="Prime" />
+      {/* Chat Box - Shown when agent is selected */}
+      {selectedAgent && (
+        <ChatBox
+          agentId={selectedAgent.id}
+          agentName={selectedAgent.name}
+          onClose={() => setSelectedAgent(null)}
+        />
+      )}
     </div>
   )
 }
