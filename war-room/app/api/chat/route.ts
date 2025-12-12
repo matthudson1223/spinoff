@@ -1,22 +1,6 @@
-import { HfInference } from '@huggingface/inference'
 import { NextRequest, NextResponse } from 'next/server'
-
-// Initialize Hugging Face client
-// Note: In production, use environment variable: process.env.HUGGINGFACE_API_KEY
-const hf = new HfInference(process.env.HUGGINGFACE_API_KEY || '')
-
-// Model configuration for Prime agent
-const PRIME_MODEL = 'microsoft/Phi-3-mini-4k-instruct'
-
-// System prompt for Prime agent
-const PRIME_SYSTEM_PROMPT = `You are Prime, the lead AI trading agent for NeuroGrid Digital. Your role is to:
-- Analyze crypto market data and identify high-probability trading opportunities
-- Filter noise from legitimate signals
-- Provide concise, data-driven insights
-- Communicate in a professional, precise manner
-- Focus on risk management and portfolio optimization
-
-Keep responses brief and technical. Use trading terminology. Always think in terms of probability and risk/reward ratios.`
+import { createPrimeChain, invokePrimeSimple } from '@/lib/langchain/agent'
+import { convertToLangChainMessages, formatConversationContext } from '@/lib/langchain/memory'
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,7 +14,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // For now, only Prime agent uses Hugging Face
+    // For now, only Prime agent uses AI chat
     if (agentId !== 'prime') {
       return NextResponse.json(
         { error: 'Only Prime agent is available for chat' },
@@ -45,34 +29,42 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ response: mockResponse })
     }
 
-    // Build conversation context
-    const messages = [
-      { role: 'system', content: PRIME_SYSTEM_PROMPT },
-      ...(conversationHistory || []).slice(-6), // Keep last 6 messages for context
-      { role: 'user', content: message }
-    ]
-
-    // Call Hugging Face API
     let fullResponse = ''
 
     try {
-      const stream = await hf.chatCompletion({
-        model: PRIME_MODEL,
-        messages: messages as any,
-        max_tokens: 200,
-        temperature: 0.7,
-        stream: false,
-      })
+      // Convert conversation history to LangChain messages
+      const recentHistory = (conversationHistory || []).slice(-8)
+      const langchainMessages = convertToLangChainMessages(recentHistory)
 
-      if ('choices' in stream && stream.choices[0]?.message?.content) {
-        fullResponse = stream.choices[0].message.content
-      } else {
-        // Fallback to mock if streaming fails
-        fullResponse = generateMockPrimeResponse(message)
+      // Try to use LangChain with full conversation context
+      try {
+        const chain = await createPrimeChain(
+          process.env.HUGGINGFACE_API_KEY,
+          langchainMessages
+        )
+
+        fullResponse = await chain.invoke({
+          input: message,
+        })
+      } catch (chainError) {
+        console.warn('Chain execution failed, using simple invoke:', chainError)
+
+        // Fallback to simple invoke with formatted context
+        const context = formatConversationContext(recentHistory, 6)
+        fullResponse = await invokePrimeSimple(
+          process.env.HUGGINGFACE_API_KEY,
+          message,
+          context
+        )
       }
-    } catch (apiError) {
-      console.error('Hugging Face API error:', apiError)
-      // Fallback to mock response
+
+      // Ensure we have a valid response
+      if (!fullResponse || fullResponse.trim().length === 0) {
+        throw new Error('Empty response from LangChain')
+      }
+    } catch (langchainError) {
+      console.error('LangChain error, using mock response:', langchainError)
+      // Final fallback to mock response
       fullResponse = generateMockPrimeResponse(message)
     }
 

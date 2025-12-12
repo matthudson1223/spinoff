@@ -46,19 +46,26 @@ A cyberpunk-themed real-time trading dashboard for monitoring AI agent trading a
   - Risk parameters
 - Read-only code block presentation
 
-### 💬 AI Chat Interface (NEW!)
+### 💬 AI Chat Interface with LangChain (ENHANCED!)
 - **Interactive chat with Prime agent**: Click the floating chat button in the bottom right
-- **Powered by Hugging Face**: Uses Microsoft Phi-3-mini-4k-instruct model for intelligent responses
-- **Smart fallback system**: Works with mock responses even without an API key
-- **Context-aware conversations**: Maintains conversation history for coherent multi-turn dialogue
+- **Powered by LangChain + Hugging Face**: Advanced conversation management with Qwen 2.5-7B-Instruct model
+- **Enhanced features**:
+  - Structured conversation chains for better context understanding
+  - Extended conversation memory (up to 8 messages)
+  - Multi-tier fallback system for maximum reliability
+  - Foundation for future tool calling and RAG capabilities
+- **Smart fallback system**: Three-tier fallback (LangChain chain → Simple invoke → Mock responses)
+- **Context-aware conversations**: Advanced memory management for coherent multi-turn dialogue
 - **Agent personality**: Prime responds with technical trading insights and market analysis
-- **Real-time responses**: Streaming text generation for natural interaction
 - **Ask about**:
   - Market conditions and analysis
   - Trade opportunities and signals
   - Portfolio status and risk metrics
   - Specific cryptocurrencies (BTC, ETH, SOL, etc.)
 - **Minimizable interface**: Clean, cyberpunk-styled chat window that doesn't obstruct the dashboard
+- **Ready for expansion**: Trading analysis tools built and ready for future activation
+
+See [LANGCHAIN_GUIDE.md](LANGCHAIN_GUIDE.md) for detailed integration documentation.
 
 ## Tech Stack
 
@@ -67,7 +74,10 @@ A cyberpunk-themed real-time trading dashboard for monitoring AI agent trading a
 - **Styling**: Tailwind CSS
 - **Icons**: Lucide React
 - **Animations**: Framer Motion
-- **AI Integration**: Hugging Face Inference API (Phi-3-mini-4k-instruct)
+- **AI Integration**:
+  - LangChain (conversation chains, memory, tools)
+  - Hugging Face Inference API (Qwen 2.5-7B-Instruct)
+  - Zod (schema validation for tools)
 - **Theme**: Bloomberg Terminal meets Cyberpunk
 
 ## Design Philosophy
