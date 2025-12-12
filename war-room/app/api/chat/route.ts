@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createPrimeChain, invokePrimeSimple, createCTOChain, invokeCTOSimple } from '@/lib/langchain/agent'
 import { convertToLangChainMessages, formatConversationContext } from '@/lib/langchain/memory'
+import { primeAgentTools } from '@/lib/langchain/tools'
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,9 +23,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if API key is available
-    if (!process.env.HUGGINGFACE_API_KEY) {
-      // Fallback to mock response if no API key
+    // Check if API keys are available (Vertex AI or HuggingFace)
+    const hasVertexAI = process.env.GOOGLE_PROJECT_ID && process.env.GOOGLE_LOCATION
+    const hasHuggingFace = process.env.HUGGINGFACE_API_KEY
+
+    if (!hasVertexAI && !hasHuggingFace) {
+      // Fallback to mock response if no API keys
       const mockResponse = agentId === 'cto'
         ? generateMockCTOResponse(message)
         : generateMockPrimeResponse(message)
@@ -69,20 +73,40 @@ export async function POST(request: NextRequest) {
 
       // Try to use LangChain with full conversation context
       try {
+        const apiKey = process.env.HUGGINGFACE_API_KEY || ""
+        const useTools = hasVertexAI  // Only use tools with Vertex AI (Gemini)
+
         const chain = agentId === 'cto'
           ? await createCTOChain(
-              process.env.HUGGINGFACE_API_KEY,
-              langchainMessages
+              apiKey,
+              langchainMessages,
+              useTools ? primeAgentTools : []  // CTO can also use trading tools for analysis
             )
           : await createPrimeChain(
-              process.env.HUGGINGFACE_API_KEY,
-              langchainMessages
+              apiKey,
+              langchainMessages,
+              useTools ? primeAgentTools : []
             )
 
-        fullResponse = await Promise.race([
-          chain.invoke({ input: message }),
+        const result = await Promise.race([
+          chain.invoke(
+            useTools
+              ? { input: message, messages: [...langchainMessages, { role: "user", content: message }] }
+              : { input: message }
+          ) as Promise<any>,
           timeoutPromise
         ])
+
+        // Extract messages from LangGraph response
+        if (typeof result === 'object' && result !== null && 'messages' in result) {
+          const messages = (result as any).messages
+          const lastMessage = messages[messages.length - 1]
+          fullResponse = lastMessage.content
+        } else if (typeof result === 'string') {
+          fullResponse = result
+        } else {
+          fullResponse = JSON.stringify(result)
+        }
       } catch (chainError) {
         console.warn('Chain execution failed, trying simple invoke:', {
           error: chainError instanceof Error ? chainError.message : String(chainError),
@@ -97,15 +121,16 @@ export async function POST(request: NextRequest) {
         })
 
         try {
+          const apiKey = process.env.HUGGINGFACE_API_KEY || ""
           fullResponse = await Promise.race([
             agentId === 'cto'
               ? invokeCTOSimple(
-                  process.env.HUGGINGFACE_API_KEY,
+                  apiKey,
                   message,
                   context
                 )
               : invokePrimeSimple(
-                  process.env.HUGGINGFACE_API_KEY,
+                  apiKey,
                   message,
                   context
                 ),

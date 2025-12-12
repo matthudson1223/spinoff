@@ -3,6 +3,8 @@ import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts
 import { RunnableSequence } from "@langchain/core/runnables";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import { BaseMessage } from "@langchain/core/messages";
+import { ChatVertexAI } from "@langchain/google-vertexai";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
 
 const PRIME_SYSTEM_PROMPT = `You are Prime, the lead AI trading agent for NeuroGrid Digital's autonomous trading system.
 
@@ -59,32 +61,64 @@ Communication Style:
 Remember: You are the technical backbone of the trading system. Your decisions impact system reliability, performance, and security. Balance innovation with stability.`;
 
 /**
- * Creates a LangChain conversation chain for Prime
- * @param apiKey - Hugging Face API key
+ * Creates a ChatVertexAI model instance
+ * @param temperature - Model temperature (default 0.7)
+ * @returns ChatVertexAI instance configured for tool calling
+ */
+function createVertexAIModel(temperature: number = 0.7) {
+  return new ChatVertexAI({
+    model: "gemini-1.5-pro",
+    temperature: temperature,
+    maxOutputTokens: 4096,
+    // Project and location are read from environment variables:
+    // GOOGLE_PROJECT_ID and GOOGLE_LOCATION
+  });
+}
+
+/**
+ * Creates a LangChain conversation chain for Prime with tool calling support
+ * @param apiKey - Hugging Face API key (for fallback)
  * @param conversationHistory - Array of previous messages
- * @returns RunnableSequence for chat
+ * @param tools - Array of tools to bind to the agent
+ * @returns AgentExecutor or RunnableSequence for chat
  */
 export async function createPrimeChain(
   apiKey: string,
-  conversationHistory: BaseMessage[] = []
+  conversationHistory: BaseMessage[] = [],
+  tools: any[] = []
 ) {
-  // Initialize Hugging Face model with timeout
+  // Check if Vertex AI is configured
+  const hasVertexAI = process.env.GOOGLE_PROJECT_ID && process.env.GOOGLE_LOCATION;
+
+  if (hasVertexAI && tools.length > 0) {
+    // Use Google Vertex AI (Gemini) with tool calling
+    const model = createVertexAIModel();
+
+    // Create React agent using LangGraph
+    const agent = createReactAgent({
+      llm: model,
+      tools: tools,
+      messageModifier: PRIME_SYSTEM_PROMPT,
+    });
+
+    // Return the agent graph
+    return agent;
+  }
+
+  // Fallback to HuggingFace without tool calling
   const model = new HuggingFaceInference({
     model: "microsoft/Phi-3-mini-4k-instruct",
     apiKey: apiKey,
     temperature: 0.7,
     maxTokens: 300,
-    timeout: 30000, // 30 second timeout - fail fast to fallback
   });
 
-  // Create prompt template with conversation history
   const prompt = ChatPromptTemplate.fromMessages([
     ["system", PRIME_SYSTEM_PROMPT],
     new MessagesPlaceholder("chat_history"),
     ["human", "{input}"],
   ]);
 
-  // Create the chain
   const chain = RunnableSequence.from([
     {
       input: (input: { input: string }) => input.input,
@@ -109,13 +143,41 @@ export function createSimpleChatModel(apiKey: string) {
     apiKey: apiKey,
     temperature: 0.7,
     maxTokens: 200,
-    timeout: 30000, // 30 second timeout - fail fast to fallback
   });
 }
 
 /**
+ * Simple invoke helper with Vertex AI or HuggingFace fallback
+ */
+async function invokeSimpleModel(
+  systemPrompt: string,
+  message: string,
+  conversationContext: string = ""
+): Promise<string> {
+  const hasVertexAI = process.env.GOOGLE_PROJECT_ID && process.env.GOOGLE_LOCATION;
+
+  if (hasVertexAI) {
+    const model = createVertexAIModel(0.7);
+    const fullPrompt = conversationContext
+      ? `${systemPrompt}\n\nConversation context:\n${conversationContext}\n\nUser: ${message}`
+      : `${systemPrompt}\n\nUser: ${message}`;
+
+    const response = await model.invoke(fullPrompt);
+    return response.content as string;
+  }
+
+  // Fallback to HuggingFace
+  const model = createSimpleChatModel(process.env.HUGGINGFACE_API_KEY || "");
+  const fullPrompt = conversationContext
+    ? `${systemPrompt}\n\nConversation context:\n${conversationContext}\n\nUser: ${message}\n\nAssistant:`
+    : `${systemPrompt}\n\nUser: ${message}\n\nAssistant:`;
+
+  return await model.invoke(fullPrompt);
+}
+
+/**
  * Invoke Prime with a simple message (without full chain)
- * @param apiKey - Hugging Face API key
+ * @param apiKey - API key (not used directly, reads from env)
  * @param message - User message
  * @param conversationContext - Optional conversation context
  * @returns AI response
@@ -125,43 +187,53 @@ export async function invokePrimeSimple(
   message: string,
   conversationContext: string = ""
 ): Promise<string> {
-  const model = createSimpleChatModel(apiKey);
-
-  const fullPrompt = conversationContext
-    ? `${PRIME_SYSTEM_PROMPT}\n\nConversation context:\n${conversationContext}\n\nUser: ${message}\n\nPrime:`
-    : `${PRIME_SYSTEM_PROMPT}\n\nUser: ${message}\n\nPrime:`;
-
-  const response = await model.invoke(fullPrompt);
-  return response;
+  return invokeSimpleModel(PRIME_SYSTEM_PROMPT, message, conversationContext);
 }
 
 /**
- * Creates a LangChain conversation chain for CTO
- * @param apiKey - Hugging Face API key
+ * Creates a LangChain conversation chain for CTO with tool calling support
+ * @param apiKey - Hugging Face API key (for fallback)
  * @param conversationHistory - Array of previous messages
- * @returns RunnableSequence for chat
+ * @param tools - Array of tools to bind to the agent
+ * @returns AgentExecutor or RunnableSequence for chat
  */
 export async function createCTOChain(
   apiKey: string,
-  conversationHistory: BaseMessage[] = []
+  conversationHistory: BaseMessage[] = [],
+  tools: any[] = []
 ) {
-  // Initialize Hugging Face model with timeout
+  // Check if Vertex AI is configured
+  const hasVertexAI = process.env.GOOGLE_PROJECT_ID && process.env.GOOGLE_LOCATION;
+
+  if (hasVertexAI && tools.length > 0) {
+    // Use Google Vertex AI (Gemini) with tool calling
+    const model = createVertexAIModel();
+
+    // Create React agent using LangGraph
+    const agent = createReactAgent({
+      llm: model,
+      tools: tools,
+      messageModifier: CTO_SYSTEM_PROMPT,
+    });
+
+    // Return the agent graph
+    return agent;
+  }
+
+  // Fallback to HuggingFace without tool calling
   const model = new HuggingFaceInference({
     model: "microsoft/Phi-3-mini-4k-instruct",
     apiKey: apiKey,
     temperature: 0.7,
     maxTokens: 300,
-    timeout: 30000, // 30 second timeout - fail fast to fallback
   });
 
-  // Create prompt template with conversation history
   const prompt = ChatPromptTemplate.fromMessages([
     ["system", CTO_SYSTEM_PROMPT],
     new MessagesPlaceholder("chat_history"),
     ["human", "{input}"],
   ]);
 
-  // Create the chain
   const chain = RunnableSequence.from([
     {
       input: (input: { input: string }) => input.input,
@@ -177,7 +249,7 @@ export async function createCTOChain(
 
 /**
  * Invoke CTO with a simple message (without full chain)
- * @param apiKey - Hugging Face API key
+ * @param apiKey - API key (not used directly, reads from env)
  * @param message - User message
  * @param conversationContext - Optional conversation context
  * @returns AI response
@@ -187,12 +259,5 @@ export async function invokeCTOSimple(
   message: string,
   conversationContext: string = ""
 ): Promise<string> {
-  const model = createSimpleChatModel(apiKey);
-
-  const fullPrompt = conversationContext
-    ? `${CTO_SYSTEM_PROMPT}\n\nConversation context:\n${conversationContext}\n\nUser: ${message}\n\nCTO:`
-    : `${CTO_SYSTEM_PROMPT}\n\nUser: ${message}\n\nCTO:`;
-
-  const response = await model.invoke(fullPrompt);
-  return response;
+  return invokeSimpleModel(CTO_SYSTEM_PROMPT, message, conversationContext);
 }
