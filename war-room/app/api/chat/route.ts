@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createPrimeChain, invokePrimeSimple, createCTOChain, invokeCTOSimple } from '@/lib/langchain/agent'
 import { convertToLangChainMessages, formatConversationContext } from '@/lib/langchain/memory'
 import { primeAgentTools } from '@/lib/langchain/tools'
+import type { ChatResponse, ResponseSource } from '@/types/api'
 
 export async function POST(request: NextRequest) {
+  const startTime = Date.now()
   try {
     const { message, agentId, conversationHistory } = await request.json()
 
@@ -32,10 +34,21 @@ export async function POST(request: NextRequest) {
       const mockResponse = agentId === 'cto'
         ? generateMockCTOResponse(message)
         : generateMockPrimeResponse(message)
-      return NextResponse.json({ response: mockResponse })
+
+      const response: ChatResponse = {
+        response: mockResponse,
+        source: 'mock',
+        confidence: 0.5,
+        metadata: {
+          responseTime: Date.now() - startTime
+        }
+      }
+      return NextResponse.json(response)
     }
 
     let fullResponse = ''
+    let responseSource: ResponseSource = 'mock'
+    let usedTools = false
 
     // Check if this is a simple greeting - use mock response for instant reply
     const lowerMessage = message.toLowerCase().trim()
@@ -46,12 +59,22 @@ export async function POST(request: NextRequest) {
       fullResponse = agentId === 'cto'
         ? generateMockCTOResponse(message)
         : generateMockPrimeResponse(message)
-      return NextResponse.json({ response: fullResponse })
+
+      const response: ChatResponse = {
+        response: fullResponse,
+        source: 'mock',
+        confidence: 0.5,
+        metadata: {
+          responseTime: Date.now() - startTime
+        }
+      }
+      return NextResponse.json(response)
     }
 
     try {
-      // Convert conversation history to LangChain messages
-      const recentHistory = (conversationHistory || []).slice(-4)
+      // Convert conversation history to LangChain messages (keep last 8 messages)
+      const HISTORY_LIMIT = 8
+      const recentHistory = (conversationHistory || []).slice(-HISTORY_LIMIT)
       const langchainMessages = convertToLangChainMessages(recentHistory)
       
       
@@ -107,6 +130,10 @@ export async function POST(request: NextRequest) {
         } else {
           fullResponse = JSON.stringify(result)
         }
+
+        // Set response source based on provider
+        responseSource = hasVertexAI ? 'vertex-ai' : 'huggingface'
+        usedTools = Boolean(useTools && hasVertexAI)
       } catch (chainError) {
         console.warn('Chain execution failed, trying simple invoke:', {
           error: chainError instanceof Error ? chainError.message : String(chainError),
@@ -115,7 +142,7 @@ export async function POST(request: NextRequest) {
         })
 
         // Fallback to simple invoke with formatted context
-        const context = formatConversationContext(recentHistory, 4)
+        const context = formatConversationContext(recentHistory, HISTORY_LIMIT)
         const simpleInvokeTimeout = new Promise<never>((_, reject) => {
           setTimeout(() => reject(new Error('Simple invoke timeout after 25 seconds')), 25000)
         })
@@ -136,6 +163,9 @@ export async function POST(request: NextRequest) {
                 ),
             simpleInvokeTimeout
           ])
+          // Simple invoke succeeded
+          responseSource = hasVertexAI ? 'vertex-ai' : 'huggingface'
+          usedTools = false
         } catch (simpleError) {
           console.error('Simple invoke failed, using mock response:', {
             error: simpleError instanceof Error ? simpleError.message : String(simpleError),
@@ -145,6 +175,8 @@ export async function POST(request: NextRequest) {
           fullResponse = agentId === 'cto'
             ? generateMockCTOResponse(message)
             : generateMockPrimeResponse(message)
+          responseSource = 'mock'
+          usedTools = false
         }
       }
 
@@ -154,6 +186,8 @@ export async function POST(request: NextRequest) {
         fullResponse = agentId === 'cto'
           ? generateMockCTOResponse(message)
           : generateMockPrimeResponse(message)
+        responseSource = 'mock'
+        usedTools = false
       }
     } catch (langchainError) {
       console.error('Unexpected error in LangChain execution:', {
@@ -164,9 +198,25 @@ export async function POST(request: NextRequest) {
       fullResponse = agentId === 'cto'
         ? generateMockCTOResponse(message)
         : generateMockPrimeResponse(message)
+      responseSource = 'mock'
+      usedTools = false
     }
 
-    return NextResponse.json({ response: fullResponse })
+    // Build structured response
+    const response: ChatResponse = {
+      response: fullResponse,
+      source: responseSource,
+      confidence: responseSource === 'mock' ? 0.5 : 1.0,
+      metadata: {
+        model: responseSource === 'vertex-ai' ? 'gemini-1.5-flash-002' :
+               responseSource === 'huggingface' ? 'microsoft/Phi-3-mini-4k-instruct' :
+               undefined,
+        usedTools,
+        responseTime: Date.now() - startTime
+      }
+    }
+
+    return NextResponse.json(response)
 
   } catch (error) {
     console.error('Chat API error:', error)

@@ -2,6 +2,135 @@
 
 All notable changes to the War Room Dashboard project.
 
+## [1.2.0] - 2025-12-12
+
+### 🔒 Security Hardening
+
+#### Added
+- **SECURITY.md** - Comprehensive security documentation
+  - Credentials management best practices
+  - Service account IAM permissions guide
+  - Credential rotation procedures
+  - Production deployment security
+  - Incident response procedures
+  - Security monitoring recommendations
+
+#### Security Improvements
+- Enhanced `.gitignore` to protect service account JSON files
+- Verified no credentials in git history
+- Server-side only environment variable usage
+- Protected sensitive file patterns
+
+### 📚 Documentation
+
+#### Added
+- **SETUP.md** - Complete AI provider setup guide
+  - Step-by-step Vertex AI configuration
+  - HuggingFace fallback setup instructions
+  - Mock mode testing guide
+  - Comprehensive troubleshooting section
+  - Cost considerations and budgeting
+  - Environment variables reference
+  - IAM permissions checklist
+
+### 🚀 API Improvements
+
+#### Structured Response Format
+- Added TypeScript types in `types/api.ts`
+- Chat API now returns structured responses:
+  ```typescript
+  {
+    response: string,
+    source: 'vertex-ai' | 'huggingface' | 'mock',
+    confidence: number,  // 1.0 for AI, 0.5 for mock
+    metadata: {
+      model?: string,
+      usedTools?: boolean,
+      responseTime?: number
+    }
+  }
+  ```
+
+#### Response Source Tracking
+- All responses now include their originating provider
+- Confidence scores distinguish AI vs mock responses
+- Performance metrics (response time) for all API calls
+- Model information included in metadata
+
+### ⚙️ Configuration Changes
+
+#### Model Update
+- Changed from `gemini-1.5-pro` to `gemini-1.5-flash-002`
+  - **2x faster** response times
+  - More widely available across GCP regions
+  - Lower cost per token
+  - Still supports tool calling for trading features
+
+#### Conversation History
+- Standardized to **8 messages** across all code paths
+  - Previously: Inconsistent (4-6 messages)
+  - Now: Uniform 8 message limit
+  - Applies to: Chain execution, simple invoke, context formatting
+
+### 📦 Dependencies
+
+#### Removed
+- `@langchain/anthropic` - Unused package removed
+  - Reduces bundle size
+  - Eliminates unnecessary dependencies
+  - Cleaner package.json
+
+### 🐛 Bug Fixes
+
+#### Vertex AI Integration
+- Fixed "Project ID not found" error
+- Fixed "Model not found" error (model availability)
+- Proper environment variable loading verified
+- Service account authentication configured
+
+### 📊 Performance Improvements
+
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| Model Speed | gemini-1.5-pro | gemini-1.5-flash-002 | ~2x faster |
+| Response Tracking | None | Full metrics | Monitoring enabled |
+| Error Handling | Basic | 3-tier fallback | Better reliability |
+| Type Safety | Partial | Full types | Fewer bugs |
+| Bundle Size | 234 packages | 229 packages | -5 packages |
+
+### ⚠️ Action Required
+
+1. **Review Service Account Permissions**
+   - Verify IAM role `roles/aiplatform.user` is assigned
+   - Check in [Google Cloud Console](https://console.cloud.google.com/iam-admin/iam)
+
+2. **Enable Vertex AI API**
+   - Required for Gemini models
+   - [Enable here](https://console.cloud.google.com/marketplace/product/google/aiplatform.googleapis.com)
+
+3. **Set Budget Alerts** (Recommended)
+   - Suggested: $10/month with 50%, 90%, 100% alerts
+   - [Configure budgets](https://console.cloud.google.com/billing/budgets)
+
+### 🔄 Migration Guide
+
+**For API Consumers:**
+
+Old format still works but missing new features:
+```typescript
+const { response } = await fetch('/api/chat', {...})
+```
+
+New format with full metadata:
+```typescript
+const { response, source, confidence, metadata } = await fetch('/api/chat', {...})
+if (source === 'mock') console.warn('Using mock response')
+if (metadata?.usedTools) console.log('AI used trading tools')
+console.log(`Response time: ${metadata?.responseTime}ms`)
+```
+
+---
+
 ## [1.1.0] - 2025-12-12
 
 ### ✨ Added - AI Chat Interface

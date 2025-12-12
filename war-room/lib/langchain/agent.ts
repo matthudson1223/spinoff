@@ -67,7 +67,7 @@ Remember: You are the technical backbone of the trading system. Your decisions i
  */
 function createVertexAIModel(temperature: number = 0.7) {
   return new ChatVertexAI({
-    model: "gemini-1.5-pro",
+    model: "gemini-1.5-flash-002",  // Using Gemini 1.5 Flash - faster and more widely available
     temperature: temperature,
     maxOutputTokens: 4096,
     // Project and location are read from environment variables:
