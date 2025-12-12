@@ -41,12 +41,13 @@ export async function createPrimeChain(
   apiKey: string,
   conversationHistory: BaseMessage[] = []
 ) {
-  // Initialize Hugging Face model
+  // Initialize Hugging Face model with timeout
   const model = new HuggingFaceInference({
     model: "Qwen/Qwen2.5-7B-Instruct",
     apiKey: apiKey,
     temperature: 0.7,
     maxTokens: 300,
+    timeout: 12000, // 12 second timeout - fail fast to fallback
   });
 
   // Create prompt template with conversation history
@@ -81,6 +82,7 @@ export function createSimpleChatModel(apiKey: string) {
     apiKey: apiKey,
     temperature: 0.7,
     maxTokens: 200,
+    timeout: 12000, // 12 second timeout - fail fast to fallback
   });
 }
 

@@ -31,10 +31,26 @@ export async function POST(request: NextRequest) {
 
     let fullResponse = ''
 
+    // Check if this is a simple greeting - use mock response for instant reply
+    const lowerMessage = message.toLowerCase().trim()
+    const isSimpleGreeting = ['hey', 'hi', 'hello', 'yo', 'sup'].includes(lowerMessage)
+
+    if (isSimpleGreeting) {
+      // Skip AI for simple greetings to provide instant response
+      fullResponse = generateMockPrimeResponse(message)
+      return NextResponse.json({ response: fullResponse })
+    }
+
     try {
       // Convert conversation history to LangChain messages
       const recentHistory = (conversationHistory || []).slice(-8)
       const langchainMessages = convertToLangChainMessages(recentHistory)
+
+      // Wrap the entire LangChain execution with a timeout
+      // Use 15 second timeout - fail fast and use mock response
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Request timeout after 15 seconds')), 15000)
+      })
 
       // Try to use LangChain with full conversation context
       try {
@@ -43,19 +59,23 @@ export async function POST(request: NextRequest) {
           langchainMessages
         )
 
-        fullResponse = await chain.invoke({
-          input: message,
-        })
+        fullResponse = await Promise.race([
+          chain.invoke({ input: message }),
+          timeoutPromise
+        ])
       } catch (chainError) {
         console.warn('Chain execution failed, using simple invoke:', chainError)
 
         // Fallback to simple invoke with formatted context
         const context = formatConversationContext(recentHistory, 6)
-        fullResponse = await invokePrimeSimple(
-          process.env.HUGGINGFACE_API_KEY,
-          message,
-          context
-        )
+        fullResponse = await Promise.race([
+          invokePrimeSimple(
+            process.env.HUGGINGFACE_API_KEY,
+            message,
+            context
+          ),
+          timeoutPromise
+        ])
       }
 
       // Ensure we have a valid response
@@ -81,7 +101,13 @@ export async function POST(request: NextRequest) {
 
 // Mock response generator for when API is unavailable
 function generateMockPrimeResponse(message: string): string {
-  const lowerMessage = message.toLowerCase()
+  const lowerMessage = message.toLowerCase().trim()
+
+  // Handle greetings
+  if (lowerMessage === 'hey' || lowerMessage === 'hi' || lowerMessage === 'hello' ||
+      lowerMessage === 'yo' || lowerMessage === 'sup') {
+    return 'Hey. Prime here. Market is active. What do you need - analysis, portfolio status, or trade opportunities?'
+  }
 
   // Pattern matching for common queries
   if (lowerMessage.includes('status') || lowerMessage.includes('how are you')) {
